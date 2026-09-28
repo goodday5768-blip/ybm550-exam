@@ -231,7 +231,7 @@ const hhmm = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinu
 function defaultCfg(unit, n) {
   n = Math.min(20, Math.max(5, n || N_DEF));
   const u = {}, prev = rangeOf(unit).filter(k => k !== unit).sort((a, b) => b - a);
-  u[unit] = Math.min(FRAMES[unit], prev.length ? Math.min(n, TODAY_DEF) : n);
+  u[unit] = Math.min(FRAMES[unit], prev.length ? Math.max(1, Math.round(n * TODAY_DEF / N_DEF)) : n);   // 오늘 단원 몫은 문제 수에 비례(기본 4/10)
   prev.forEach(k => { u[k] = 0; });
   let rest = n - u[unit];
   for (let i = 0; rest > 0 && prev.length && i < 400; i++) {   // 앞 단원을 최근 것부터 돌아가며 한 문제씩
