@@ -207,7 +207,8 @@ a.link{color:var(--acc);font-size:13px;cursor:pointer;text-decoration:underline}
             <div><b>종료까지</b> <span class="clock" id="tClock">--:--</span></div>
             <div><button class="small ghost" id="copyLink">학생용 링크 복사</button></div>
           </div>
-          <p class="muted" id="tMsg" style="margin:8px 0 0">칠판에 코드를 적거나 링크를 단톡방에 올리세요. 학생이 코드를 넣는 순간 시험이 시작되고, 종료 시각에 전원이 자동 제출됩니다.</p>
+          <div class="row" style="margin-top:10px"><button id="tStart" style="flex:1">시작 — 지금부터 제한시간을 셉니다</button></div>
+          <p class="muted" id="tMsg" style="margin:8px 0 0">칠판에 코드를 적거나 링크를 단톡방에 올리세요. 학생들이 이름과 코드를 넣고 대기 화면이 되면 「시작」을 누르세요. 그 순간부터 제한시간을 세고, 종료 시각에 전원이 자동 제출됩니다.</p>
         </div>
       </div>
     </div>
@@ -418,11 +419,11 @@ function show(v) {
 function bar() {
   const b = $('#barIn'); b.innerHTML = '';
   if (view === 'home') {
-    const c = unpackCode($('#code').value), end = c && endTime(c.endMin);
+    const c = unpackCode($('#code').value), opened = c && endTime(c.endMin), k = c && CFG[c.code];
     const done = c && store.get('done:' + c.code, null), pend = c && store.get('pend:' + c.code, null);
-    const ready = done || pend || (c && CFG[c.code] && !CFG[c.code].err);   // 배분을 받았을 때만 시작할 수 있다
-    const go = el('button', '', done ? '내 결과 보기' : '시험 시작');
-    go.disabled = !($('#name').value.trim() && c && end && ready && (done || pend || Date.now() < end.getTime()));
+    const live_ = k && !k.err && k.end && Date.now() < k.end;                 // 교수님이 「시작」을 눌렀고 아직 종료 전
+    const go = el('button', '', done ? '내 결과 보기' : (k && !k.err && !k.end ? '교수님이 「시작」을 누르면 열립니다' : '시험 시작'));
+    go.disabled = !($('#name').value.trim() && c && opened && (done || pend || live_));
     go.onclick = start; b.append(go);
   } else if (view === 'quiz') {
     const n = cur.pick.filter(x => x !== null).length;
@@ -459,13 +460,15 @@ function home() {
 const CFG = {};                                        // 코드 → {cfg} 또는 {err}
 let cfgWait = null;
 async function loadCfg(code) {
-  if (CFG[code] && !CFG[code].err) return CFG[code];
+  if (CFG[code] && !CFG[code].err && CFG[code].end) return CFG[code];
   const saved = store.get('cfg:' + code, null);
-  if (saved) return (CFG[code] = saved);
+  if (saved && saved.end) return (CFG[code] = saved);
   try {
     const r = await post('cfg', { code: code });
-    CFG[code] = { cfg: r.cfg || null, n: r.n, pass: r.pass };
-    store.set('cfg:' + code, CFG[code]);
+    // end = 서버 시계로 정한 종료 시각(0 이면 교수님이 아직 「시작」 전) → 이 기기 시계로 옮겨 둔다
+    const end = r.end ? r.end - ((r.now || Date.now()) - Date.now()) : 0;
+    CFG[code] = { cfg: r.cfg || null, n: r.n, pass: r.pass, mins: r.mins || 0, end: end };
+    if (end) store.set('cfg:' + code, CFG[code]);
   } catch (e) {
     // 옛 서버(cfg 요청이 없는 버전)면 학생이 알아들을 수 있는 말로 바꾼다
     CFG[code] = { err: /알 수 없는 요청/.test(e.message) ? '채점 서버가 아직 옛 버전입니다. 교수님께 「스크립트 새 버전 배포」가 필요하다고 알려 주세요.' : e.message };
@@ -477,14 +480,16 @@ function codeCheck() {
   if (!raw) { m.textContent = ''; return bar(); }
   const c = unpackCode(raw);
   if (!c) { m.innerHTML = '<span style="color:var(--no)">코드가 올바르지 않습니다. 다시 확인하세요.</span>'; return bar(); }
-  const end = endTime(c.endMin);
-  if (!end) { m.innerHTML = '<span style="color:var(--no)">지난 시험 코드입니다.</span>'; return bar(); }
+  const opened = endTime(c.endMin);                    // 코드를 연 시각 — 12시간 넘으면 지난 코드
+  if (!opened) { m.innerHTML = '<span style="color:var(--no)">지난 시험 코드입니다.</span>'; return bar(); }
   const done = store.get('done:' + c.code, null), pend = store.get('pend:' + c.code, null);
-  if (Date.now() >= end.getTime() && !done && !pend) {
-    m.innerHTML = `<span style="color:var(--no)">이미 종료된 시험입니다(종료 ${hhmm(end)}). 응시할 수 없습니다.</span>`; return bar(); }
+  const k0 = CFG[c.code];
+  if (k0 && k0.end && Date.now() >= k0.end && !done && !pend) {
+    m.innerHTML = `<span style="color:var(--no)">이미 종료된 시험입니다(종료 ${hhmm(new Date(k0.end))}). 응시할 수 없습니다.</span>`; return bar(); }
   if (!SRV) { m.innerHTML = '<span style="color:var(--no)">채점 서버가 아직 연결되지 않았습니다. 교수님께 알려 주세요.</span>'; return bar(); }
   if (done) { m.innerHTML = '<span style="color:var(--warn)">이미 응시한 시험입니다. 「시험 시작」을 누르면 제출한 결과를 봅니다.</span>'; return bar(); }
-  const info = `Unit ${c.unit} · 범위 ${rangeLabel(c.unit)} · ${c.n}문제 · ${c.pass}문제 이상 합격 · 종료 ${hhmm(end)}`;
+  const info = `Unit ${c.unit} · 범위 ${rangeLabel(c.unit)} · ${c.n}문제 · ${c.pass}문제 이상 합격`
+    + (k0 && k0.end ? ` · 종료 ${hhmm(new Date(k0.end))}` : (k0 && k0.mins ? ` · 제한 ${k0.mins}분` : ''));
   if (pend) { m.innerHTML = info; return bar(); }
   const k = CFG[c.code];
   if (!k) {                                            // 배분을 서버에서 받아 온다 — 받기 전에는 시작 단추가 잠긴다
@@ -500,30 +505,42 @@ function codeCheck() {
     $('#cfgRetry').onclick = () => { delete CFG[c.code]; codeCheck(); };
     return bar();
   }
+  if (!k.end) {                                        // 코드는 맞지만 교수님이 아직 「시작」 전 — 몇 초마다 다시 묻고, 시작되면 바로 연다
+    m.innerHTML = info + '<br><span style="color:var(--warn)">대기 중 — 교수님이 「시작」을 누르면 바로 시험이 열립니다. 이 화면을 그대로 두세요.</span>';
+    clearTimeout(startPoll);
+    startPoll = setTimeout(async () => {
+      const cc = unpackCode($('#code').value); if (!cc || cc.code !== c.code || view !== 'home') return;
+      delete CFG[c.code]; await loadCfg(c.code); codeCheck();
+      const k2 = CFG[c.code]; if (k2 && k2.end && Date.now() < k2.end && $('#name').value.trim()) start();   // 시작되면 자동으로 연다
+    }, 3000);
+    return bar();
+  }
   m.innerHTML = info; bar();
 }
+let startPoll = null;
 function start() {
   const name = $('#name').value.trim(), c = unpackCode($('#code').value);
   if (!name || !c) return;
   store.set('name', name);
-  const end = endTime(c.endMin);
-  if (!end) return codeCheck();
+  if (!endTime(c.endMin)) return codeCheck();
+  const kk = CFG[c.code] || store.get('cfg:' + c.code, null);
+  const end = new Date(kk && kk.end ? kk.end : 0);    // 서버가 정한 종료 시각(시작 전이면 0)
   const pend = store.get('pend:' + c.code, null);
   if (pend) {                                          // 보내지 못한 답안이 있으면 먼저 보낸다
     const qs = paperFor(examItems(c.unit, c.seed, pend.cfg || null).items, pend.name || name, c.code);
-    cur = { ...c, name: pend.name || name, cfg: pend.cfg || null, n: qs.length, end: end.getTime(),
+    cur = { ...c, name: pend.name || name, cfg: pend.cfg || null, n: qs.length, end: end.getTime() || pend.endAt || 0,
             pick: pend.pick || [], leave: pend.leave || 0, qs: qs };
     show('waitEnd'); $('#waitInfo').textContent = '채점 서버로 보내는 중…'; return sendPending();
   }
   const done = store.get('done:' + c.code, null);
   if (done) {                                          // 재응시 차단 — 제출본 결과만 보여준다
     const qs = paperFor(examItems(done.unit, done.seed, done.cfg || null).items, done.name, done.code);
-    cur = { ...done, end: end.getTime(), n: qs.length, qs: qs };
+    cur = { ...done, end: end.getTime() || done.endAt || 0, n: qs.length, qs: qs };
     show('waitEnd'); $('#waitInfo').textContent = '제출한 답안을 확인하는 중…'; return fetchResult();
   }
-  if (Date.now() >= end.getTime()) return codeCheck();
   const k = CFG[c.code];
-  if (!k || k.err) return codeCheck();                 // 배분을 못 받았으면 시작하지 않는다
+  if (!k || k.err || !k.end) return codeCheck();       // 배분을 못 받았거나 아직 「시작」 전이면 열지 않는다
+  if (Date.now() >= end.getTime()) return codeCheck();
 
   const saved = store.get('run:' + c.code, null);
   const qs = paperFor(examItems(c.unit, c.seed, k.cfg).items, name, c.code);
@@ -591,7 +608,7 @@ async function sendPending() {
                                        how: p.how, endAt: p.endAt, pass: p.pass });
     store.del('pend:' + cur.code);
     store.set('done:' + cur.code, { code: cur.code, name: p.name, unit: p.unit, seed: p.seed,
-                                    endMin: p.endMin, pass: p.pass, pick: p.pick, leave: p.leave,
+                                    endMin: p.endMin, endAt: p.endAt, pass: p.pass, pick: p.pick, leave: p.leave,
                                     n: p.n, cfg: p.cfg || null });
     afterSubmit(res);
   } catch (e) {
@@ -711,28 +728,39 @@ $('#tMin').onchange = () => tStatus(); $('#tPass').onchange = () => tStatus();
 async function openExam() {
   const unit = +$('#tUnit').value, mins = +$('#tMin').value, n = +$('#tN').value, pass = +$('#tPass').value;
   if (cfgSum(Object.values(tCfg.u)) !== n || cfgSum(tCfg.l) !== n) return tStatus();
-  const end = new Date(Date.now() + mins * 60e3);
-  const endMin = end.getHours() * 60 + end.getMinutes();
+  // 2026-09-30: 코드의 시각 칸은 이제 '연 시각'(12시간 지나면 지난 코드). 종료 시각은 「시작」을 누를 때 서버가 정한다.
+  const now = new Date(), endMin = now.getHours() * 60 + now.getMinutes();
   const code = packCode(unit, endMin, Math.floor(Math.random() * 512), n, pass);
-  const at = new Date(); at.setHours(0, endMin, 0, 0);
   const cfg = { u: Object.assign({}, tCfg.u), l: tCfg.l.slice() };
   $('#tOpen').disabled = true; $('#tOpenMsg').textContent = '채점 서버에 등록하는 중…';
+  // 채점 스크립트가 아직 옛 버전(「시작」 요청이 없음)이면 예전처럼 열 때부터 시간을 센다 — 대신 초 단위까지 정확히
+  let legacy = false;                                  // ping 의 v 가 2 이상이면 새 서버(비밀번호 틀린 요청으로 떠보면 저장된 비밀번호가 지워진다 — 쓰지 않는다)
+  try { const pg = await post('ping', {}); legacy = !(pg && pg.v >= 2); } catch (e) { legacy = false; }
   try {                                                // 배분은 서버에만 있으므로 등록이 안 되면 코드를 내지 않는다
-    await post('open', { pin: store.get('pinText', ''), code: code, unit: unit, endAt: at.getTime(), pass: pass, n: n, cfg: cfg });
+    await post('open', { pin: store.get('pinText', ''), code: code, unit: unit, endAt: legacy ? Date.now() + mins * 60e3 : 0, mins: mins, pass: pass, n: n, cfg: cfg });
   } catch (e) {
     $('#tOpenMsg').innerHTML = `<span style="color:var(--no)">서버 등록 실패 — ${esc(e.message)}</span><br>`
       + '등록이 안 되면 학생 앱이 배분을 받지 못해 시험을 시작할 수 없습니다. 인터넷을 확인하고 다시 누르세요.';
     $('#tOpen').disabled = false; return;
   }
   $('#tOpen').disabled = false; $('#tOpenMsg').textContent = '';
-  live = { unit, code, end: at.getTime(), pass, n, cfg };
+  live = { unit, code, end: 0, mins, pass, n, cfg };
   CFG[code] = { cfg: cfg, n: n, pass: pass }; store.set('cfg:' + code, CFG[code]);
   const mine = store.get('myCodes', []); mine.push(code); store.set('myCodes', mine.slice(-20));
   $('#liveCode').textContent = code;
-  $('#liveInfo').textContent = `Unit ${unit} · ${cfgLabel(cfg)} · ${n}문제 · ${pass}문제 이상 합격 · ${mins}분 · 종료 ${hhmm(at)}`;
+  $('#liveInfo').textContent = `Unit ${unit} · ${cfgLabel(cfg)} · ${n}문제 · ${pass}문제 이상 합격 · 제한 ${mins}분 · 「시작」 전`;
   $('#liveBox').classList.remove('hide');
   $('#sheetCode').value = code; $('#repCode').value = code;   // 「문제지」·「결과」 탭에서 바로 쓰게
-  $('#tMsg').textContent = '채점 서버에 등록했습니다. 칠판에 코드를 적거나 링크를 단톡방에 올리세요. 학생이 코드를 넣는 순간 시험이 시작되고, 종료 시각에 전원이 자동 제출됩니다.';
+  $('#tMsg').textContent = '채점 서버에 등록했습니다. 칠판에 코드를 적거나 링크를 단톡방에 올리세요. 학생들이 코드를 넣고 대기 화면이 되면 「시작」을 누르세요 — 그 순간부터 ' + mins + '분을 셉니다.';
+  clearInterval(ttick); $('#tClock').textContent = mmss(mins * 60e3); $('#tClock').classList.remove('hot');
+  $('#tStart').classList.remove('hide'); $('#tStart').disabled = false; $('#tStart').textContent = `시작 — 지금부터 ${mins}분을 셉니다`;
+  if (legacy) {                                        // 옛 서버: 시작 단추 없이 바로 시계를 돌린다
+    $('#tStart').classList.add('hide');
+    $('#tMsg').innerHTML = '<span style="color:var(--warn)">채점 스크립트가 옛 버전이라 지금부터 시간이 흐릅니다. 「배포 관리 → 새 버전」을 하면 「시작」 단추가 생깁니다.</span>';
+    live.end = Date.now() + mins * 60e3; startClock();
+  }
+}
+function startClock() {
   clearInterval(ttick);
   const upd = () => {
     const left = live.end - Date.now();
@@ -740,6 +768,18 @@ async function openExam() {
     if (left <= 0) { clearInterval(ttick); $('#tMsg').innerHTML = '<b style="color:var(--no)">시험이 종료되었습니다.</b> 「결과 모으기」에서 불러오세요.'; }
   };
   upd(); ttick = setInterval(upd, 500);
+}
+async function startExam() {
+  if (!live || live.end) return;
+  $('#tStart').disabled = true; $('#tStart').textContent = '시작하는 중…';
+  let res;
+  try { res = await post('start', { pin: store.get('pinText', ''), code: live.code, mins: live.mins }); }
+  catch (e) { $('#tStart').disabled = false; $('#tStart').textContent = '다시 누르기 — 시작'; $('#tMsg').innerHTML = `<span style="color:var(--no)">시작하지 못했습니다 — ${esc(e.message)}</span>`; return; }
+  live.end = res.end - (res.now - Date.now());          // 서버 시계 기준 종료 시각을 이 기기 시계로 옮긴다
+  $('#tStart').classList.add('hide');
+  $('#liveInfo').textContent = $('#liveInfo').textContent.replace('「시작」 전', '종료 ' + hhmm(new Date(live.end)));
+  $('#tMsg').textContent = `시작했습니다. 학생 화면이 몇 초 안에 자동으로 열립니다. 종료 ${hhmm(new Date(live.end))}에 전원이 자동 제출됩니다.`;
+  startClock();
 }
 async function drawSheet() {
   const c = unpackCode($('#sheetCode').value), box = $('#sheetBox');
@@ -813,6 +853,7 @@ $('#code').oninput = () => {
 /*T_JS_START*/
 $('#toTeacher').onclick = teacher;
 $('#tOpen').onclick = openExam;
+$('#tStart').onclick = startExam;
 $('#pinGo').onclick = async () => {
   const v = $('#pin').value.trim();
   if (!v) return;
