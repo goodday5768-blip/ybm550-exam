@@ -917,11 +917,16 @@ else show('home');
   a.id = 'hubBack'; a.href = u; a.textContent = '‹ 전체 앱';
   a.setAttribute('style', 'display:inline-block;padding:6px 14px 6px 10px;border:1px solid var(--line,#e1e0da);border-radius:999px;background:var(--card,#fff);color:var(--acc,#2f5bd3);font:600 14px/1.4 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;text-decoration:none');
   a.onclick = function (e) {
-    var h = document.getElementById('home'), idle = !!h && !h.hidden && h.offsetParent !== null;
+    var t = document.getElementById('test'), h = document.getElementById('home');   // 시험 화면이 있는 앱은 그것으로, 없으면 첫 화면이 보이는지로
+    var idle = t ? (t.hidden || t.offsetParent === null) : (!!h && !h.hidden && h.offsetParent !== null);
     if (!idle && !confirm('전체 앱 목록으로 돌아갈까요?\n지금 푸는 문제는 이어서 풀 수 없을 수도 있습니다.')) e.preventDefault();
   };
   box.appendChild(a);
   document.body.insertBefore(box, document.body.firstChild);
+  // 선생님 앱(leess-teacher)에서 왔으면 선생님 화면을 바로 연다(코드는 선생님 앱이 이 앱의 코드 자리에 넣어 두었다). 한 번만.
+  var tf; try { tf = sessionStorage.getItem('hub:teacher'); sessionStorage.removeItem('hub:teacher'); } catch (e) {}
+  var tb = document.getElementById('teacherBtn');
+  if (tf === '1' && tb && !tb.hidden) tb.click();
 })();
 </script>
 </body>
