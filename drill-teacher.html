@@ -907,5 +907,22 @@ if (D.role === 'teacher') {
 }
 else show('home');
 </script>
+<!--hubback-->
+<script>/* 통합앱에서 열었을 때만 맨 위에 「‹ 전체 앱」(hubback.py) */
+(function () {
+  var u; try { u = sessionStorage.getItem('hub:back'); } catch (e) {}
+  if (!u || u.indexOf(location.origin + '/') !== 0) return;
+  var box = document.createElement('div'), a = document.createElement('a');
+  box.setAttribute('style', 'max-width:780px;margin:0 auto;padding:10px 16px 0');
+  a.id = 'hubBack'; a.href = u; a.textContent = '‹ 전체 앱';
+  a.setAttribute('style', 'display:inline-block;padding:6px 14px 6px 10px;border:1px solid var(--line,#e1e0da);border-radius:999px;background:var(--card,#fff);color:var(--acc,#2f5bd3);font:600 14px/1.4 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;text-decoration:none');
+  a.onclick = function (e) {
+    var h = document.getElementById('home'), idle = !!h && !h.hidden && h.offsetParent !== null;
+    if (!idle && !confirm('전체 앱 목록으로 돌아갈까요?\n지금 푸는 문제는 이어서 풀 수 없을 수도 있습니다.')) e.preventDefault();
+  };
+  box.appendChild(a);
+  document.body.insertBefore(box, document.body.firstChild);
+})();
+</script>
 </body>
 </html>
